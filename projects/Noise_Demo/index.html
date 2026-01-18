@@ -1,0 +1,220 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Web Audio Context Demo</title>
+  <style>
+    :root{--bg:#000;--panel:#111;--muted:#9aa0a6;--accent:#e6e6e6}
+    html,body{height:100%}
+    body{font-family:system-ui,Segoe UI,Roboto,Arial;margin:20px;background:var(--bg);color:var(--accent)}
+    #controls{display:flex;gap:12px;align-items:center;flex-wrap:wrap}
+    label{font-size:13px;color:var(--muted)}
+    canvas{display:block;margin-top:16px;background:#0b0b0b}
+    .panel{background:var(--panel);border:1px solid #222;padding:12px;border-radius:8px}
+    h1{margin:0 0 12px 0;color:var(--accent);font-weight:600}
+    h3{color:var(--accent);font-size:14px;margin:0 0 8px 0}
+    .controls-row{display:flex;gap:12px;align-items:center}
+    .dial-wrapper{display:flex;align-items:center;gap:8px}
+    .knob{width:48px;height:48px;border-radius:50%;background:linear-gradient(180deg,#1a1a1a,#0d0d0d);box-shadow:inset 0 2px 0 rgba(255,255,255,0.02);display:flex;align-items:center;justify-content:center;position:relative;border:1px solid #222;box-shadow:inset 0 0 0 3px rgba(255,255,255,0.08),0 0 8px rgba(0,0,0,0.5)}
+    .knob:after{content:'';position:absolute;width:2px;height:16px;background:#fff;border-radius:1px;top:6px}
+    .dial-label{font-size:12px;color:var(--muted);min-width:60px}
+    input[type=range]{position:relative;touch-action:none}
+    /* hide native slider visually but keep for accessibility */
+    input[type=range].hidden-range{position:absolute;opacity:0;width:1px;height:1px;border:0;padding:0;margin:0}
+    .value{min-width:48px;text-align:right;color:var(--accent);font-family:monospace}
+    .routing-badge{display:inline-block;font-size:10px;padding:2px 6px;background:#222;border:1px solid #333;border-radius:3px;color:var(--muted);margin-left:8px}
+    .routing-badge.active{background:#1a3a2a;color:#4db8a8;border-color:#2a5a4a}
+    [title]{border-bottom:1px dotted #666;cursor:help}
+    .lfo-section{margin-top:12px;padding-top:12px;border-top:1px solid #222}
+    .dial-row{display:flex;align-items:center;gap:8px;margin-top:8px}
+  </style>
+</head>
+<body>
+  <h1>Web Audio Context Demo</h1>
+  <div id="controls">
+    <button id="btn-init">Create Audio Context</button>
+    <button id="btn-kill" disabled style="background:#8b3a3a;border-color:#c0392b">Kill Switch</button>
+  </div>
+
+  <section id="noise-controls" style="margin-top:18px;display:flex;gap:18px;flex-wrap:wrap">
+    <div class="panel" style="min-width:280px">
+      <h3>Noise A</h3>
+      <label style="font-size:12px"><input id="enableA" type="checkbox"> Active</label>
+      
+      <div class="dial-row">
+        <label style="flex:1" title="Channel gain / volume (0–1).">Gain:</label>
+        <input id="gainA" type="range" min="0" max="1" step="0.01" value="0.5">
+        <span id="gainA-val" class="value">0.50</span>
+      </div>
+
+      <div class="dial-row">
+        <label style="flex:1" title="High-pass cutoff frequency in Hz. Safe range: 20–5000.">HP:</label>
+        <input id="hpA" type="range" min="20" max="20000" step="1" value="200">
+        <span id="hpA-val" class="value">200</span><span style="font-size:11px;color:var(--muted)">Hz</span>
+      </div>
+
+      <div class="lfo-section">
+        <label style="font-size:12px;font-weight:600">Filter 2</label>
+        <div class="dial-row">
+          <label style="flex:1" title="Second filter type (after HP).">Type:</label>
+          <select id="filter2A-type" style="flex:1"><option value="none">none</option><option value="lowpass">lowpass</option><option value="highpass">highpass</option><option value="bandpass">bandpass</option><option value="notch">notch</option><option value="allpass">allpass</option><option value="peaking">peaking</option><option value="lowshelf">lowshelf</option><option value="highshelf">highshelf</option></select>
+        </div>
+        <div class="dial-row" id="filter2A-freq-row" style="display:none">
+          <label style="flex:1" title="Filter 2 center/cutoff frequency in Hz.">Freq:</label>
+          <input id="filter2A-freq" type="range" min="20" max="20000" step="1" value="2000">
+          <span id="filter2A-freq-val" class="value">2000</span><span style="font-size:11px;color:var(--muted)">Hz</span>
+        </div>
+        <div class="dial-row" id="filter2A-q-row" style="display:none">
+          <label style="flex:1" title="Filter resonance/bandwidth (Q).">Q:</label>
+          <input id="filter2A-q" type="range" min="0.1" max="30" step="0.1" value="1">
+          <span id="filter2A-q-val" class="value">1.0</span>
+        </div>
+        <div class="dial-row" id="filter2A-gain-row" style="display:none">
+          <label style="flex:1" title="Filter 2 gain in dB (for shelf/peaking).">Gain:</label>
+          <input id="filter2A-gain" type="range" min="-12" max="12" step="0.1" value="0">
+          <span id="filter2A-gain-val" class="value">0.0</span><span style="font-size:11px;color:var(--muted)">dB</span>
+        </div>
+      </div>
+
+      <div class="lfo-section">
+        <label style="font-size:12px;font-weight:600">LFO 1</label>
+        <div class="dial-row">
+          <label style="flex:1" title="Modulation frequency (exponential 0.01–20 Hz).">Freq:</label>
+          <input id="lfoA1-freq" type="range" min="0" max="1000" step="1" value="607">
+          <span id="lfoA1-freq-val" class="value">1.000</span><span style="font-size:11px;color:var(--muted)">Hz</span>
+        </div>
+        <div class="dial-row">
+          <label style="flex:1" title="Waveform type.">Wave:</label>
+          <select id="lfoA1-wave" style="flex:1"><option value="sine">sine</option><option value="square">square</option><option value="sawtooth">sawtooth</option><option value="triangle">triangle</option><option value="sample">sample&shy;hold</option></select>
+        </div>
+        <div class="dial-row">
+          <label style="flex:1" title="Modulation depth/amount. Safe: depth ≤ base value.">Depth:</label>
+          <input id="lfoA1-depth" type="range" min="0" max="2000" step="1" value="50">
+          <span id="lfoA1-depth-val" class="value">50</span>
+        </div>
+        <div class="dial-row">
+          <label style="flex:1" title="LFO routing: none, HP frequency, Gain, or Filter 2 parameters.">Route:</label>
+          <select id="lfoA1-dest" style="flex:1"><option value="none">—</option><option value="hp">→ HP</option><option value="gain">→ Gain</option><option value="f2freq">→ F2 Freq</option><option value="f2q">→ F2 Q</option><option value="f2gain">→ F2 Gain</option></select>
+          <span id="lfoA1-badge" class="routing-badge">—</span>
+        </div>
+        <canvas id="lfoA1-canvas" width="200" height="32" style="display:block;margin-top:8px;border:1px solid #222;background:#000"></canvas>
+      </div>
+
+      <div class="lfo-section">
+        <label style="font-size:12px;font-weight:600">LFO 2</label>
+        <div class="dial-row">
+          <label style="flex:1" title="Modulation frequency (exponential 0.01–20 Hz).">Freq:</label>
+          <input id="lfoA2-freq" type="range" min="0" max="1000" step="1" value="424">
+          <span id="lfoA2-freq-val" class="value">0.250</span><span style="font-size:11px;color:var(--muted)">Hz</span>
+        </div>
+        <div class="dial-row">
+          <label style="flex:1" title="Waveform type.">Wave:</label>
+          <select id="lfoA2-wave" style="flex:1"><option value="sine">sine</option><option value="square">square</option><option value="sawtooth">sawtooth</option><option value="triangle">triangle</option><option value="sample">sample&shy;hold</option></select>
+        </div>
+        <div class="dial-row">
+          <label style="flex:1" title="Modulation depth/amount. Safe: depth ≤ base value.">Depth:</label>
+          <input id="lfoA2-depth" type="range" min="0" max="2000" step="1" value="100">
+          <span id="lfoA2-depth-val" class="value">100</span>
+        </div>
+        <div class="dial-row">
+          <label style="flex:1" title="LFO routing: none, HP frequency, Gain, or Filter 2 parameters.">Route:</label>
+          <select id="lfoA2-dest" style="flex:1"><option value="none">—</option><option value="hp">→ HP</option><option value="gain">→ Gain</option><option value="f2freq">→ F2 Freq</option><option value="f2q">→ F2 Q</option><option value="f2gain">→ F2 Gain</option></select>
+          <span id="lfoA2-badge" class="routing-badge">—</span>
+        </div>
+        <canvas id="lfoA2-canvas" width="200" height="32" style="display:block;margin-top:8px;border:1px solid #222;background:#000"></canvas>
+      </div>
+    </div>
+
+    <div class="panel" style="min-width:280px">
+      <h3>Noise B</h3>
+      <label style="font-size:12px"><input id="enableB" type="checkbox"> Active</label>
+      
+      <div class="dial-row">
+        <label style="flex:1" title="Channel gain / volume (0–1).">Gain:</label>
+        <input id="gainB" type="range" min="0" max="1" step="0.01" value="0.5">
+        <span id="gainB-val" class="value">0.50</span>
+      </div>
+      
+      <div class="dial-row">
+        <label style="flex:1" title="High-pass cutoff frequency in Hz. Safe range: 20–5000.">HP:</label>
+        <input id="hpB" type="range" min="20" max="20000" step="1" value="800">
+        <span id="hpB-val" class="value">800</span><span style="font-size:11px;color:var(--muted)">Hz</span>
+      </div>
+
+      <div class="lfo-section">
+        <label style="font-size:12px;font-weight:600">Filter 2</label>
+        <div class="dial-row">
+          <label style="flex:1" title="Second filter type (after HP).">Type:</label>
+          <select id="filter2B-type" style="flex:1"><option value="none">none</option><option value="lowpass">lowpass</option><option value="highpass">highpass</option><option value="bandpass">bandpass</option><option value="notch">notch</option><option value="allpass">allpass</option><option value="peaking">peaking</option><option value="lowshelf">lowshelf</option><option value="highshelf">highshelf</option></select>
+        </div>
+        <div class="dial-row" id="filter2B-freq-row" style="display:none">
+          <label style="flex:1" title="Filter 2 center/cutoff frequency in Hz.">Freq:</label>
+          <input id="filter2B-freq" type="range" min="20" max="20000" step="1" value="2000">
+          <span id="filter2B-freq-val" class="value">2000</span><span style="font-size:11px;color:var(--muted)">Hz</span>
+        </div>
+        <div class="dial-row" id="filter2B-q-row" style="display:none">
+          <label style="flex:1" title="Filter resonance/bandwidth (Q).">Q:</label>
+          <input id="filter2B-q" type="range" min="0.1" max="30" step="0.1" value="1">
+          <span id="filter2B-q-val" class="value">1.0</span>
+        </div>
+        <div class="dial-row" id="filter2B-gain-row" style="display:none">
+          <label style="flex:1" title="Filter 2 gain in dB (for shelf/peaking).">Gain:</label>
+          <input id="filter2B-gain" type="range" min="-12" max="12" step="0.1" value="0">
+          <span id="filter2B-gain-val" class="value">0.0</span><span style="font-size:11px;color:var(--muted)">dB</span>
+        </div>
+      </div>
+
+      <div class="lfo-section">
+        <label style="font-size:12px;font-weight:600">LFO 1</label>
+        <div class="dial-row">
+          <label style="flex:1" title="Modulation frequency (exponential 0.01–20 Hz).">Freq:</label>
+          <input id="lfoB1-freq" type="range" min="0" max="1000" step="1" value="607">
+          <span id="lfoB1-freq-val" class="value">1.000</span><span style="font-size:11px;color:var(--muted)">Hz</span>
+        </div>
+        <div class="dial-row">
+          <label style="flex:1" title="Waveform type.">Wave:</label>
+          <select id="lfoB1-wave" style="flex:1"><option value="sine">sine</option><option value="square">square</option><option value="sawtooth">sawtooth</option><option value="triangle">triangle</option><option value="sample">sample&shy;hold</option></select>
+        </div>
+        <div class="dial-row">
+          <label style="flex:1" title="Modulation depth/amount. Safe: depth ≤ base value.">Depth:</label>
+          <input id="lfoB1-depth" type="range" min="0" max="2000" step="1" value="50">
+          <span id="lfoB1-depth-val" class="value">50</span>
+        </div>
+        <div class="dial-row">
+          <label style="flex:1" title="LFO routing: none, HP frequency, Gain, or Filter 2 parameters.">Route:</label>
+          <select id="lfoB1-dest" style="flex:1"><option value="none">—</option><option value="hp">→ HP</option><option value="gain">→ Gain</option><option value="f2freq">→ F2 Freq</option><option value="f2q">→ F2 Q</option><option value="f2gain">→ F2 Gain</option></select>
+          <span id="lfoB1-badge" class="routing-badge">—</span>
+        </div>
+        <canvas id="lfoB1-canvas" width="200" height="32" style="display:block;margin-top:8px;border:1px solid #222;background:#000"></canvas>
+      </div>
+
+      <div class="lfo-section">
+        <label style="font-size:12px;font-weight:600">LFO 2</label>
+        <div class="dial-row">
+          <label style="flex:1" title="Modulation frequency (exponential 0.01–20 Hz).">Freq:</label>
+          <input id="lfoB2-freq" type="range" min="0" max="1000" step="1" value="424">
+          <span id="lfoB2-freq-val" class="value">0.250</span><span style="font-size:11px;color:var(--muted)">Hz</span>
+        </div>
+        <div class="dial-row">
+          <label style="flex:1" title="Waveform type.">Wave:</label>
+          <select id="lfoB2-wave" style="flex:1"><option value="sine">sine</option><option value="square">square</option><option value="sawtooth">sawtooth</option><option value="triangle">triangle</option><option value="sample">sample&shy;hold</option></select>
+        </div>
+        <div class="dial-row">
+          <label style="flex:1" title="Modulation depth/amount. Safe: depth ≤ base value.">Depth:</label>
+          <input id="lfoB2-depth" type="range" min="0" max="2000" step="1" value="100">
+          <span id="lfoB2-depth-val" class="value">100</span>
+        </div>
+        <div class="dial-row">
+          <label style="flex:1" title="LFO routing: none, HP frequency, Gain, or Filter 2 parameters.">Route:</label>
+          <select id="lfoB2-dest" style="flex:1"><option value="none">—</option><option value="hp">→ HP</option><option value="gain">→ Gain</option><option value="f2freq">→ F2 Freq</option><option value="f2q">→ F2 Q</option><option value="f2gain">→ F2 Gain</option></select>
+          <span id="lfoB2-badge" class="routing-badge">—</span>
+        </div>
+        <canvas id="lfoB2-canvas" width="200" height="32" style="display:block;margin-top:8px;border:1px solid #222;background:#000"></canvas>
+      </div>
+    </div>
+  </section>
+  <canvas id="analyser" width="640" height="120" style="border:1px solid #222;background:#000"></canvas>
+  <script src="js/main.js"></script>
+</body>
+</html>
